@@ -3,312 +3,502 @@ import streamlit as st
 import requests
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
+
+# =====================================================
+# MES FLOODSENSE — FLOOD & RAINFALL INTELLIGENCE
+# =====================================================
 
 st.set_page_config(
-    page_title="EarthFlood | Monitoring",
-    page_icon="🌍",
-    layout="wide"
+    page_title="MES FloodSense",
+    page_icon="🌊",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# ---------- DESIGN ----------
+# =====================================================
+# MODERN COLOURFUL DESIGN
+# =====================================================
+
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(180deg, #071827 0%, #0b2132 100%);
-    color: #eef7ff;
+    background:
+        radial-gradient(ellipse at 5% 0%, #193e70 0%, transparent 35%),
+        linear-gradient(140deg, #071525, #101b36 55%, #202044);
+    color: #f2f6ff;
 }
 .block-container {
-    max-width: 1250px;
-    padding-top: 2rem;
+    max-width: 1450px;
+    padding-top: 1.5rem;
     padding-bottom: 3rem;
 }
 h1, h2, h3, p, label {
-    color: #eef7ff !important;
+    color: #f2f6ff !important;
 }
 .hero {
-    padding: 28px;
-    border: 1px solid #24475c;
-    border-radius: 22px;
-    background: linear-gradient(120deg, #10364a, #102539);
-    margin-bottom: 24px;
+    padding: 34px;
+    border-radius: 26px;
+    background: linear-gradient(115deg, #087eaa, #4f46e5 60%, #9333ea);
+    border: 1px solid #7794ff;
+    box-shadow: 0 15px 40px #0004;
+    margin-bottom: 25px;
 }
-.eyebrow {
-    color: #53e0c0;
-    font-size: 13px;
-    letter-spacing: 2px;
-    font-weight: 700;
+.hero-tag {
+    color: #a7f3d0;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 3px;
 }
-.small-muted {
-    color: #a9c2d2;
-    font-size: 14px;
+.hero h1 {
+    font-size: clamp(30px, 4vw, 48px);
+    margin: 10px 0;
+}
+.hero p {
+    color: #edf5ff !important;
+    font-size: 16px;
 }
 div[data-testid="stMetric"] {
-    background: #102b3e;
-    border: 1px solid #24475c;
-    border-radius: 16px;
-    padding: 18px;
+    background: linear-gradient(145deg, #142944, #20294a);
+    border: 1px solid #385477;
+    border-radius: 18px;
+    padding: 20px;
+    box-shadow: 0 8px 25px #0002;
 }
 div[data-testid="stMetricLabel"] {
-    color: #b6ccda !important;
+    color: #c2d3ee !important;
 }
 div[data-testid="stMetricValue"] {
-    color: #53e0c0 !important;
+    color: #67e8f9 !important;
+    font-weight: 800;
 }
-.stButton > button {
+.stButton > button,
+.stDownloadButton > button {
     border-radius: 12px;
-    border: 1px solid #53e0c0;
-    background: #53e0c0;
-    color: #06212b;
-    font-weight: 700;
     min-height: 44px;
+    font-weight: 700;
+    border: 1px solid #67e8f9;
+    transition: 0.2s ease;
+}
+.stButton > button:hover,
+.stDownloadButton > button:hover {
+    border-color: #c4b5fd;
+    color: #c4b5fd;
 }
 section[data-testid="stSidebar"] {
-    background: #091d2c;
+    background: linear-gradient(180deg, #09172b, #172544);
+}
+div[data-testid="stTabs"] button {
+    font-weight: 700;
+}
+.footer {
+    padding: 22px;
+    margin-top: 28px;
+    border-top: 1px solid #34445f;
+    text-align: center;
+    color: #b5c7e5;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- HEADER ----------
+
+# =====================================================
+# WEATHER DATA FUNCTION
+# =====================================================
+
+@st.cache_data(ttl=600, show_spinner=False)
+def get_weather(city, forecast_days):
+
+    # Find the city
+    geo_response = requests.get(
+        "https://geocoding-api.open-meteo.com/v1/search",
+        params={
+            "name": city,
+            "count": 1,
+            "language": "en",
+            "format": "json"
+        },
+        timeout=20
+    )
+    geo_response.raise_for_status()
+
+    places = geo_response.json().get("results", [])
+
+    if not places:
+        return None
+
+    place = places[0]
+
+    # Get weather information
+    weather_response = requests.get(
+        "https://api.open-meteo.com/v1/forecast",
+        params={
+            "latitude": place["latitude"],
+            "longitude": place["longitude"],
+            "current": (
+                "temperature_2m,"
+                "relative_humidity_2m,"
+                "apparent_temperature,"
+                "precipitation,"
+                "rain,"
+                "showers,"
+                "weather_code,"
+                "wind_speed_10m"
+            ),
+            "hourly": (
+                "precipitation,"
+                "precipitation_probability,"
+                "temperature_2m,"
+                "wind_speed_10m"
+            ),
+            "forecast_days": forecast_days,
+            "timezone": "auto"
+        },
+        timeout=25
+    )
+    weather_response.raise_for_status()
+
+    return place, weather_response.json()
+
+
+# =====================================================
+# SIDEBAR
+# =====================================================
+
+with st.sidebar:
+
+    st.markdown("## 🌊 MES FloodSense")
+    st.caption("Environmental intelligence dashboard")
+    st.divider()
+
+    city = st.text_input(
+        "📍 Search a city or town",
+        value="Chennai",
+        placeholder="For example, Chennai"
+    )
+
+    forecast_days = st.selectbox(
+        "📅 Forecast duration",
+        [1, 3, 7],
+        index=1,
+        format_func=lambda n: (
+            f"{n} day" if n == 1 else f"{n} days"
+        )
+    )
+
+    refresh = st.button(
+        "🔄 Refresh weather data",
+        use_container_width=True
+    )
+
+    if refresh:
+        get_weather.clear()
+
+    st.divider()
+
+    st.markdown("### 📡 Data source")
+    st.caption("Open-Meteo public weather API")
+    st.caption("Forecast and current weather estimates")
+    st.caption("Cached for up to 10 minutes")
+
+    st.divider()
+
+    st.markdown("### ⚠️ Important")
+    st.caption(
+        "Weather forecasts cannot confirm flooding at "
+        "street level. Follow official warnings."
+    )
+
+
+# =====================================================
+# HEADER
+# =====================================================
+
 st.markdown("""
 <div class="hero">
-    <div class="eyebrow">EARTHFLOOD • ENVIRONMENTAL MONITORING</div>
-    <h1>🌍 Flood & Rainfall Intelligence</h1>
-    <p>Explore current weather conditions and rainfall forecasts
-    to support early awareness and further investigation.</p>
-    <div class="small-muted">Research prototype · Public weather data</div>
+    <div class="hero-tag">MES • ENVIRONMENTAL RESEARCH</div>
+    <h1>🌊 MES FloodSense</h1>
+    <p>
+        Explore rainfall patterns, weather conditions and forecasts
+        through an interactive environmental monitoring dashboard.
+    </p>
+    <div>
+        🌦️ Weather intelligence &nbsp; • &nbsp;
+        📊 Interactive analytics &nbsp; • &nbsp;
+        🗺️ Location explorer
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ---------- SIDEBAR ----------
-with st.sidebar:
-    st.markdown("## 🌍 EarthFlood")
-    st.caption("Monitoring dashboard")
-    city = st.text_input("Location", value="Chennai")
-    st.caption("Try Chennai, Mumbai, Delhi or Bengaluru.")
-    refresh = st.button("↻ Refresh weather data", use_container_width=True)
-    st.divider()
-    st.caption("DATA LIMITATION")
-    st.write(
-        "Weather conditions are model-derived. "
-        "They do not confirm flooding at street level."
-    )
-
-if "weather_data" not in st.session_state:
-    st.session_state.weather_data = None
-if "weather_city" not in st.session_state:
-    st.session_state.weather_city = ""
-
-# Load automatically the first time, or when refreshing/changing city.
-should_load = (
-    st.session_state.weather_data is None
-    or st.session_state.weather_city.lower() != city.strip().lower()
-    or refresh
+st.info(
+    "MES FloodSense is a research prototype. Weather forecasts "
+    "are not verified flood observations or official warnings."
 )
+
+
+# =====================================================
+# INPUT VALIDATION AND DATA LOADING
+# =====================================================
 
 if not city.strip():
     st.warning("Enter a city or town in the sidebar.")
     st.stop()
 
-if should_load:
-    try:
-        with st.spinner("Loading the latest available weather data..."):
-            geo = requests.get(
-                "https://geocoding-api.open-meteo.com/v1/search",
-                params={
-                    "name": city.strip(),
-                    "count": 1,
-                    "language": "en",
-                    "format": "json"
-                },
-                timeout=20
-            )
-            geo.raise_for_status()
-            places = geo.json().get("results", [])
+try:
+    with st.spinner("🌐 Loading the latest available weather data..."):
+        result = get_weather(city.strip(), forecast_days)
 
-            if not places:
-                st.error("Location not found. Try a different city name.")
-                st.stop()
-
-            place = places[0]
-            lat = place["latitude"]
-            lon = place["longitude"]
-
-            response = requests.get(
-                "https://api.open-meteo.com/v1/forecast",
-                params={
-                    "latitude": lat,
-                    "longitude": lon,
-                    "current": (
-                        "temperature_2m,relative_humidity_2m,"
-                        "apparent_temperature,precipitation,rain,"
-                        "showers,weather_code,wind_speed_10m"
-                    ),
-                    "hourly": (
-                        "precipitation,precipitation_probability,"
-                        "temperature_2m,wind_speed_10m"
-                    ),
-                    "forecast_days": 3,
-                    "timezone": "auto"
-                },
-                timeout=25
-            )
-            response.raise_for_status()
-            weather = response.json()
-
-            st.session_state.weather_data = {
-                "place": place,
-                "weather": weather
-            }
-            st.session_state.weather_city = city.strip()
-
-    except requests.RequestException:
+    if result is None:
         st.error(
-            "Weather data could not be reached. Check your internet "
-            "connection and press Refresh weather data."
+            "Location not found. Check the spelling or try another city."
         )
         st.stop()
 
-saved = st.session_state.weather_data
-place = saved["place"]
-weather = saved["weather"]
-current = weather.get("current", {})
-hourly = weather.get("hourly", {})
+    place, weather = result
 
-if not current or not hourly:
-    st.error("The weather service returned incomplete data. Please refresh.")
+    current = weather.get("current", {})
+    hourly = weather.get("hourly", {})
+
+    if not current or not hourly:
+        st.error("The weather service returned incomplete data.")
+        st.stop()
+
+    df = pd.DataFrame({
+        "Time": pd.to_datetime(hourly["time"]),
+        "Rainfall (mm)": hourly["precipitation"],
+        "Rain probability (%)": hourly["precipitation_probability"],
+        "Temperature (°C)": hourly["temperature_2m"],
+        "Wind speed (km/h)": hourly["wind_speed_10m"]
+    })
+
+except requests.RequestException:
+    st.error(
+        "Unable to connect to the weather service. "
+        "Check your connection and click Refresh weather data."
+    )
     st.stop()
 
-# ---------- DATA ----------
-df = pd.DataFrame({
-    "Time": pd.to_datetime(hourly["time"]),
-    "Rainfall (mm)": hourly["precipitation"],
-    "Rain probability (%)": hourly["precipitation_probability"],
-    "Temperature (°C)": hourly["temperature_2m"],
-    "Wind speed (km/h)": hourly["wind_speed_10m"]
-})
+except (KeyError, ValueError, TypeError):
+    st.error(
+        "The weather service returned unexpected data. Please try again."
+    )
+    st.stop()
 
-current_time = pd.to_datetime(current["time"])
-forecast_end = df["Time"].max()
 
-st.markdown(f"### 📍 {place['name']}, {place.get('country', '')}")
-st.caption(
-    f"Weather data timestamp: {current_time} · "
-    f"Forecast ends: {forecast_end} · "
-    f"Timezone: {weather.get('timezone', 'local time')}"
-)
+# =====================================================
+# LOCATION AND DATA TIMESTAMP
+# =====================================================
 
-st.info(
-    "This timestamp is the weather service's reported current-data time, "
-    "not a guarantee that a physical sensor measured conditions at that time."
-)
-
-# ---------- CURRENT CONDITIONS ----------
-st.markdown("### Current weather conditions")
-a, b, c, d = st.columns(4)
-
-a.metric(
-    "Temperature",
-    f"{current.get('temperature_2m', '—')} °C",
-    help="Weather-model-based current condition"
-)
-b.metric(
-    "Humidity",
-    f"{current.get('relative_humidity_2m', '—')}%",
-)
-c.metric(
-    "Precipitation",
-    f"{current.get('precipitation', '—')} mm",
-    help="Current precipitation estimate reported by the API"
-)
-d.metric(
-    "Wind speed",
-    f"{current.get('wind_speed_10m', '—')} km/h",
+st.markdown(
+    f"### 📍 {place['name']}, {place.get('country', '')}"
 )
 
 st.caption(
-    "These measurements are not a flood-risk score or an official warning."
+    f"Weather API timestamp: {current.get('time', 'Not supplied')} "
+    f" · Timezone: {weather.get('timezone', 'Not supplied')}"
 )
 
-# ---------- CHARTS ----------
-st.markdown("### 📊 Rainfall outlook")
+st.caption(
+    "The timestamp is supplied by the weather service. "
+    "It does not guarantee a live physical sensor measurement."
+)
 
-tab1, tab2, tab3 = st.tabs([
-    "Rainfall",
-    "Rain probability",
-    "Temperature"
+
+# =====================================================
+# CURRENT WEATHER CARDS
+# =====================================================
+
+st.markdown("### ⚡ Current weather estimates")
+
+c1, c2, c3, c4 = st.columns(4)
+
+c1.metric(
+    "🌡️ Temperature",
+    f"{current.get('temperature_2m', '—')} °C"
+)
+
+c2.metric(
+    "💧 Humidity",
+    f"{current.get('relative_humidity_2m', '—')}%"
+)
+
+c3.metric(
+    "🌧️ Precipitation",
+    f"{current.get('precipitation', '—')} mm"
+)
+
+c4.metric(
+    "💨 Wind speed",
+    f"{current.get('wind_speed_10m', '—')} km/h"
+)
+
+
+# =====================================================
+# FORECAST SUMMARY
+# =====================================================
+
+st.markdown("### 📈 Forecast overview")
+
+s1, s2, s3 = st.columns(3)
+
+s1.metric(
+    "Forecast duration",
+    f"{forecast_days} day" if forecast_days == 1
+    else f"{forecast_days} days"
+)
+
+s2.metric(
+    "Total forecast rainfall",
+    f"{df['Rainfall (mm)'].sum():.1f} mm"
+)
+
+s3.metric(
+    "Peak hourly rainfall",
+    f"{df['Rainfall (mm)'].max():.1f} mm"
+)
+
+st.caption(
+    "Total rainfall is the sum of the forecast's hourly precipitation "
+    "values. It is not a flood-risk score."
+)
+
+
+# =====================================================
+# INTERACTIVE CHART EXPLORER
+# =====================================================
+
+st.markdown("### 📊 Interactive weather explorer")
+
+chart_choice = st.selectbox(
+    "Choose a data layer",
+    [
+        "Rainfall (mm)",
+        "Rain probability (%)",
+        "Temperature (°C)",
+        "Wind speed (km/h)"
+    ]
+)
+
+max_hours = len(df)
+
+hours_to_show = st.slider(
+    "Choose how many forecast hours to display",
+    min_value=1,
+    max_value=max_hours,
+    value=min(48, max_hours),
+    step=1
+)
+
+chart_df = df.head(hours_to_show)
+
+chart_colours = {
+    "Rainfall (mm)": "#22d3ee",
+    "Rain probability (%)": "#a78bfa",
+    "Temperature (°C)": "#fb923c",
+    "Wind speed (km/h)": "#4ade80"
+}
+
+fig = px.area(
+    chart_df,
+    x="Time",
+    y=chart_choice,
+    title=f"{chart_choice} forecast",
+    template="plotly_dark",
+    color_discrete_sequence=[chart_colours[chart_choice]]
+)
+
+fig.update_layout(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(12,25,48,0.6)",
+    font_color="#eef6ff",
+    title_font_size=22,
+    margin=dict(l=15, r=15, t=60, b=15),
+    hovermode="x unified"
+)
+
+fig.update_traces(
+    line=dict(width=3),
+    fillcolor="rgba(34,211,238,0.16)"
+)
+
+if chart_choice == "Rain probability (%)":
+    fig.update_yaxes(range=[0, 100])
+
+st.plotly_chart(fig, use_container_width=True)
+
+
+# =====================================================
+# MAP, DATA TABLE AND PROJECT INFORMATION
+# =====================================================
+
+map_tab, data_tab, about_tab = st.tabs([
+    "🗺️ Location map",
+    "📄 Forecast data",
+    "ℹ️ About MES FloodSense"
 ])
 
-with tab1:
-    fig = px.area(
-        df,
-        x="Time",
-        y="Rainfall (mm)",
-        title="Hourly rainfall forecast",
-        template="plotly_dark"
-    )
-    fig.update_traces(line_color="#53e0c0", fillcolor="rgba(83,224,192,0.18)")
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=10, r=10, t=55, b=10)
-    )
-    st.plotly_chart(fig, use_container_width=True)
+with map_tab:
 
-with tab2:
-    fig = px.line(
-        df,
-        x="Time",
-        y="Rain probability (%)",
-        title="Forecast probability of precipitation",
-        template="plotly_dark"
+    st.markdown("#### 🌍 Selected monitoring location")
+
+    map_data = pd.DataFrame({
+        "latitude": [place["latitude"]],
+        "longitude": [place["longitude"]]
+    })
+
+    st.map(map_data)
+
+    st.caption(
+        "The map marks the searched city. It does not show "
+        "verified flood boundaries or street-level water levels."
     )
-    fig.update_traces(line_color="#69aef5", line_width=3)
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=10, r=10, t=55, b=10),
-        yaxis=dict(range=[0, 100])
+
+
+with data_tab:
+
+    st.markdown("#### Hourly forecast data")
+
+    st.dataframe(
+        chart_df,
+        use_container_width=True,
+        hide_index=True
     )
-    st.plotly_chart(fig, use_container_width=True)
 
-with tab3:
-    fig = px.line(
-        df,
-        x="Time",
-        y="Temperature (°C)",
-        title="Forecast temperature",
-        template="plotly_dark"
+    st.download_button(
+        "⬇️ Download forecast data (CSV)",
+        data=chart_df.to_csv(index=False).encode("utf-8"),
+        file_name="MES_FloodSense_forecast.csv",
+        mime="text/csv",
+        use_container_width=True
     )
-    fig.update_traces(line_color="#ffbf69", line_width=3)
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=10, r=10, t=55, b=10)
+
+
+with about_tab:
+
+    st.markdown("#### 🌍 About the project")
+
+    st.write(
+        "MES FloodSense is a software research prototype designed "
+        "to explore weather forecasts and rainfall information."
     )
-    st.plotly_chart(fig, use_container_width=True)
 
-# ---------- MAP ----------
-st.markdown("### 🗺️ Monitoring location")
-st.map(pd.DataFrame({
-    "latitude": [place["latitude"]],
-    "longitude": [place["longitude"]]
-}))
+    st.write("**Weather provider:** Open-Meteo")
+    st.write("**Technology:** Python, Streamlit, Pandas and Plotly")
+    st.write("**Cost:** Uses public weather API access without a paid API key.")
 
-# ---------- DATA TABLE / EXPORT ----------
-with st.expander("View forecast data"):
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.warning(
+        "This version does not include verified river gauges, "
+        "street-level flood sensors or an official flood-warning feed."
+    )
 
-st.download_button(
-    "⬇️ Download forecast data (CSV)",
-    data=df.to_csv(index=False).encode("utf-8"),
-    file_name="earthflood_forecast.csv",
-    mime="text/csv"
-)
 
-st.divider()
-st.caption(
-    "EarthFlood is a research prototype, not an emergency service. "
-    "Rainfall alone cannot reliably predict flooding. Use official "
-    "weather, flood and emergency alerts for safety decisions."
-)
+# =====================================================
+# FOOTER
+# =====================================================
+
+st.markdown("""
+<div class="footer">
+    <strong>🌊 MES FloodSense</strong><br>
+    Environmental awareness through data.<br><br>
+    Research prototype · an official flood-warning system
+</div>
+""", unsafe_allow_html=True)
