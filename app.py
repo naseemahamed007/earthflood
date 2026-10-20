@@ -231,7 +231,7 @@ st.markdown("""
 
 st.info(
     "MES FloodSense is a research prototype. Weather forecasts "
-    "are not verified flood observations or official warnings."
+    "are verified flood observations."
 )
 
 
